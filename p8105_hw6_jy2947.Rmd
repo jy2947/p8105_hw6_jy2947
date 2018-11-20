@@ -6,4 +6,31 @@ output: github_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
 ```
+###Problem 1
+
+This problem focuses on the homicide data gathered by Washington Post. 
+
+Some tidying includes the new `city_state` variable, binary variable `solve_bi` with 0 for unsolved and 1 for solved. Omitted the four cities, modified the `victim_race`, and ensured `victim_age` is numeric.   
+```{r load_and_tidy}
+homi = read.csv("./data/homicide-data.csv") %>% 
+  unite(city, state, col = "city_state", sep = ", ") %>% 
+  mutate(solve_bi = 
+           ifelse(disposition %in% c("Closed without arrest", "Open/No arrest"), 0, 1)) %>% 
+  filter(city_state != "Dallas, TX" | city_state != "Phoenix, AZ" |
+         city_state != "Kansas City, MO" | city_state != "Tulsa, AL") %>% 
+  mutate(victim_race = ifelse(victim_race == "White", "white", "non-white"), 
+         victim_race = as.factor(victim_race), 
+         victim_race = relevel(victim_race, "white"), 
+         victim_age = as.numeric(victim_age))
+```
+
+The logistic regression.
+
+```{r logi}
+homi_log_fit = glm(solve_bi ~ victim_age + victim_sex + victim_race, data = homi)
+
+homi_log_fit %>% broom::tidy()
+```
+
