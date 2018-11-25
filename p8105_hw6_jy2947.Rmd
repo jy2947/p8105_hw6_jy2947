@@ -18,19 +18,93 @@ homi = read.csv("./data/homicide-data.csv") %>%
   unite(city, state, col = "city_state", sep = ", ") %>% 
   mutate(solve_bi = 
            ifelse(disposition %in% c("Closed without arrest", "Open/No arrest"), 0, 1)) %>% 
-  filter(city_state != "Dallas, TX" | city_state != "Phoenix, AZ" |
-         city_state != "Kansas City, MO" | city_state != "Tulsa, AL") %>% 
+  filter(city_state != "Dallas, TX" & city_state != "Phoenix, AZ" &
+         city_state != "Kansas City, MO" & city_state != "Tulsa, AL") %>% 
   mutate(victim_race = ifelse(victim_race == "White", "white", "non-white"), 
          victim_race = as.factor(victim_race), 
          victim_race = relevel(victim_race, "white"), 
-         victim_age = as.numeric(victim_age))
+         victim_age = as.numeric(victim_age),
+         city_state = as.factor(city_state))
 ```
 
 The logistic regression.
 
 ```{r logi}
-homi_log_fit = glm(solve_bi ~ victim_age + victim_sex + victim_race, data = homi)
+homi_log_fit = 
+  homi %>% 
+  filter(city_state == "Baltimore, MD") %>% 
+  glm(solve_bi ~ victim_age + victim_sex + victim_race, data = .)
 
 homi_log_fit %>% broom::tidy()
 ```
 
+OR for solving homicides comparing non-white victims to white victims keeping all other variables fixed.  
+And CI
+```{r or}
+homi_log_fit %>% 
+  broom::tidy() %>% 
+  mutate(or_estimate = exp(estimate), 
+         ci_low = exp(estimate - 1.96 * std.error),
+         ci_high = exp(estimate + 1.96 * std.error)) %>% 
+  select(term, OR_estimate, ci_low, ci_high) %>% 
+  filter(term == "victim_racenon-white")
+```
+
+OR for every city.  
+There is unreasonable value for `victim_sex` variable, which is "Pittsburg". This observation is dropped from the data, but unknown victim gender is not removed.   
+```{r or_all}
+glm_ci = function(df){
+  glm(solve_bi ~ victim_age + victim_sex + victim_race, data = df) %>% 
+  broom::tidy() %>% 
+  mutate(or_estimate = round(exp(estimate), digits = 3), 
+         ci_low = round(exp(estimate - 1.96 * std.error), digits = 3),
+         ci_high = round(exp(estimate + 1.96 * std.error), digits = 3)) %>% 
+  select(term, or_estimate, ci_low, ci_high) %>% 
+  filter(term == "victim_racenon-white")
+}
+
+homi_nest = homi %>%
+  select(city_state, solve_bi, victim_age, victim_sex, victim_race) %>%
+  filter(victim_sex %in% c("Female", "Male", "Unknown")) %>% 
+  nest(solve_bi:victim_race, .key = data) %>% 
+  mutate(glm = map(data,  glm_ci)) %>% 
+  select(city_state, glm) %>% 
+  unnest()
+```
+
+And the plot.  
+```{r set_plot, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      fig.width = 8,
+                      fig.height = 10)
+```
+
+```{r plot}
+homi_nest %>% 
+  ggplot(aes(x = fct_reorder(city_state, or_estimate), y = or_estimate)) +
+  geom_point(color = "light blue", size = 2) +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high)) +
+  coord_flip() +
+  labs(title = "Esitmated OR in the US with confidence intervals", 
+       x = "City", 
+       y = "Esitmated OR") +
+  theme_classic()
+```
+Placeholder for comment on pic
+
+#####Problem 2
+
+Load data. Convert variables for baby sex, father race, malformation, mother race to factor variables. 
+```{r load_2}
+birth = read.csv("./data/birthweight.csv")
+str(birth)
+sum(is.na(birth))
+birth = birth %>% 
+  mutate(babysex = as.factor(babysex), 
+         frace = as.factor(frace),
+         malform = as.factor(malform),
+         mrace = as.factor(mrace)) 
+
+```
+The code shows that the data set do not contain missing values.  
+commit before moving on. 
