@@ -7,12 +7,13 @@ output: github_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(modelr)
 ```
 ###Problem 1
 
 This problem focuses on the homicide data gathered by Washington Post. 
 
-Some tidying includes the new `city_state` variable, binary variable `solve_bi` with 0 for unsolved and 1 for solved. Omitted the four cities, modified the `victim_race`, and ensured `victim_age` is numeric.   
+Some tidying includes the new `city_state` variable, binary variable `solve_bi` with 0 for unsolved and 1 for solved. Omitted the four cities, modified the `victim_race`, and ensured `victim_age` is numeric. When the race of a victim is unknown, it is considered "non white".    
 ```{r load_and_tidy}
 homi = read.csv("./data/homicide-data.csv") %>% 
   unite(city, state, col = "city_state", sep = ", ") %>% 
@@ -46,7 +47,7 @@ homi_log_fit %>%
   mutate(or_estimate = exp(estimate), 
          ci_low = exp(estimate - 1.96 * std.error),
          ci_high = exp(estimate + 1.96 * std.error)) %>% 
-  select(term, OR_estimate, ci_low, ci_high) %>% 
+  select(term, or_estimate, ci_low, ci_high) %>% 
   filter(term == "victim_racenon-white")
 ```
 
@@ -90,7 +91,9 @@ homi_nest %>%
        y = "Esitmated OR") +
   theme_classic()
 ```
-Placeholder for comment on pic
+
+
+The majority of the cities has less than 1 OR for solving homicides comparing non-white victims to white victims keeping all other variables fixed. However many of these cities have CIs that includes 1.0, indicating not statistically significant results. Some cities such as Tampa, Durham has OR larger than 1, but their CIs included 1, indicating not statistically significant results.  
 
 #####Problem 2
 
@@ -107,4 +110,73 @@ birth = birth %>%
 
 ```
 The code shows that the data set do not contain missing values.  
-commit before moving on. 
+```{r set_plot_2, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      fig.width = 8,
+                      fig.height = 6)
+```
+
+Let's see how the data looks like
+
+```{r explore_model}
+birth %>% 
+  group_by(bwt) %>% 
+  summarize(n = n()) %>% 
+  ggplot(aes(x = bwt, y = n)) +
+  geom_point()
+
+birth %>% 
+  ggplot(aes(x = bhead, y = bwt)) +
+  geom_point(alpha = .5)
+  
+expl_model = 
+  lm(bwt ~ bhead + blength + babysex  + frace + mrace + wtgain, data = birth) 
+```
+
+Not too surprisingly, birth weight looks normal. Seems like there's some relationship between head circumference and birth weight. Also I think the race the parents, gender of the baby, mother's weight gain are associated with baby's birth weight.Therefore I build a model as above.  
+
+```{r resi_fit}
+birth %>% 
+  add_predictions(expl_model) %>% 
+  add_residuals(expl_model) %>% 
+  ggplot(aes(x = pred, y = resid)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  theme_bw()
+```
+There are some outliers for the under weight newborns, but for the fitted values around 3 kilograms, the residuals are more or less evenly distributed around 0 line, but not really perfect. 
+
+Other specified models.  
+```{r other_models}
+ges_model = lm(bwt ~ blength + gaweeks, data = birth)
+interaction_model = lm(bwt ~ bhead + blength + babysex +
+                             bhead * blength + bhead * babysex + blength * babysex + 
+                             bhead * blength * babysex, 
+                             data = birth)
+```
+
+Compare the models.  
+```{r compare}
+cv_df = crossv_mc(birth, 100)
+cv_df = cv_df %>% 
+  mutate(expl_m  = map(train, ~lm(bwt ~ bhead + blength + babysex  + frace + mrace + wtgain, data = .x)), 
+         ges_m   = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)), 
+         inter_m = map(train, ~lm(bwt ~ bhead + blength + babysex +
+                                        bhead * blength + bhead * babysex + blength * babysex + 
+                                        bhead * blength * babysex, data = .x))) %>% 
+  mutate(rmse_expl  = map2_dbl(expl_m, test, ~rmse(model = .x, data = .y)), 
+         rmse_ges   = map2_dbl(ges_m, test, ~rmse(model = .x, data = .y)),
+         rmse_inter = map2_dbl(inter_m, test, ~rmse(model = .x, data = .y)))
+
+  
+cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  gather(key = model, value = rmse) %>% 
+  mutate(model = str_replace(model, "rmse_", ""),
+         model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_violin() +
+  theme_bw()
+
+```
+
+It turns out that my model has the smallest root mean square error. My model has 6 variables and is not the best in terms of parsimony. The model with gestational age in weeks and length at birth has a rather high root mean square error indicating a not very good fit. The model using head circumferences, length, sex and all the interaction is a bit complicated but has aceptable goodness of fit.  
